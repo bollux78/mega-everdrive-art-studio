@@ -8,7 +8,7 @@ const bannerDefaults=()=>({...defaults(),useWallBg:false,bannerX:16,bannerY:0});
 const wallDefaults=()=>({...defaults(),showBannerOverlay:true});
 let kind='banner',state={banner:bannerDefaults(),wall:wallDefaults(),integrated:{...defaults(),bannerX:16,bannerY:0}},img=null,images={banner:null,wall:null},renderId=0,finalData=null,drag=null;
 const defaultAssets={banner:'assets/banner.png',wall:'assets/wallpaper.png',integrated:'assets/wallpaper.png'};
-function loadDefault(k){const image=new Image();image.onload=()=>{if(!images[k])images[k]=image;if(kind===k){img=images[k];schedule()}};image.onerror=()=>{if(kind===k&&!img)$('stats').textContent='Imagem padrão ainda não enviada: '+defaultAssets[k]};image.src=defaultAssets[k]}
+function loadDefault(k){const image=new Image();image.onload=()=>{if(!images[k])images[k]=image;if(kind===k){img=images[k];schedule()}else if(k==='banner'&&kind==='wall'&&state.wall.showBannerOverlay!==false)schedule()};image.onerror=()=>{if(kind===k&&!img)$('stats').textContent='Imagem padrão ainda não enviada: '+defaultAssets[k]};image.src=defaultAssets[k]}
 
 try{const v=JSON.parse(localStorage.getItem('edart-v1'));if(v?.banner&&v?.wall)state={...state,...v,banner:{...bannerDefaults(),...v.banner},wall:{...wallDefaults(),...v.wall},integrated:{...state.integrated,...v.integrated}}}catch{}
 const $=id=>document.getElementById(id),current=()=>state[kind],size=()=>kind==='banner'?[BW,BH]:[WW,WH];
