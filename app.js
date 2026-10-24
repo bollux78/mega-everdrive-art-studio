@@ -22,7 +22,58 @@ function quantize(px,w,h,n,method,strength){let codes=paletteFor(px,n),colors=co
 const be16=(out,v)=>{out.push((v>>8)&255,v&255)},pad=out=>{while(out.length%CHUNK)out.push(0)};
 function banner(px,w,h,s){let q=quantize(px,w,h,13,s.dither,s.dither_strength),codes=[...new Set(q.codes.filter(c=>c!==HI))].slice(0,13),pal=new Array(16).fill(0),map=new Map([[HI,1]]);codes.forEach((c,i)=>{pal[i+2]=c;map.set(c,i+2)});let indexed=Array.from(q.indices,i=>{let c=q.codes[i];if(map.has(c))return map.get(c);return codes.length?map.get(codes[nearest(rgb(c),codes.map(rgb))]):2});let out=[];pal.forEach(v=>be16(out,v));for(let ty=0;ty<3;ty++)for(let tx=0;tx<36;tx++)for(let y=0;y<8;y++)for(let x=0;x<8;x+=2){let a=(ty*8+y)*w+tx*8+x;out.push(indexed[a]*16+indexed[a+1])}pad(out);return {bytes:new Uint8Array(out),preview:indexed.map(i=>rgb(pal[i])),count:codes.length}}
 function flipH(t){let a=[];for(let y=0;y<8;y++)for(let x=7;x>=0;x--)a.push(t[y*8+x]);return a}function flipV(t){let a=[];for(let y=7;y>=0;y--)for(let x=0;x<8;x++)a.push(t[y*8+x]);return a}
-function wallpaper(px,w,h,s){let q=quantize(px,w,h,15,s.dither,s.dither_strength),seen=new Set(),keep=[];for(let i of q.indices){let c=q.codes[i];if(c!==0&&!seen.has(c)){seen.add(c);if(keep.length<14)keep.push(c)}}let pal=new Array(16).fill(0),idx=new Map([[0,0]]);keep.forEach((c,i)=>{pal[i+1]=c;idx.set(c,i+1)});let indexed=Array.from(q.indices,i=>{let c=q.codes[i];return idx.has(c)?idx.get(c):nearest(rgb(c),[0,...keep].map(rgb))});let tiles=[],refs=[],lookup=new Map();for(let ty=0;ty<28;ty++)for(let tx=0;tx<40;tx++){let tile=[];for(let y=0;y<8;y++)for(let x=0;x<8;x++)tile.push(indexed[(ty*8+y)*w+tx*8+x]);let found=null;for(const [flipped,flag] of [[tile,0],[flipH(tile),0x800],[flipV(tile),0x1000],[flipV(flipH(tile)),0x1800]]){let key=flipped.join('');if(lookup.has(key)){found=[lookup.get(key),flag];break}}if(found)refs.push(found);else{lookup.set(tile.join(''),tiles.length);refs.push([tiles.length,0]);tiles.push(tile)}}let original=tiles.length,owner=tiles.map((_,i)=>i),active=tiles.map((_,i)=>i);if(active.length>MAX_TILES){let cols=pal.map(rgb),vectors=tiles.map(t=>t.map(i=>cols[i])),sums=vectors.map(t=>[0,1,2].map(k=>t.reduce((a,c)=>a+c[k],0)));while(active.length>MAX_TILES){let sorted=active.slice().sort((a,b)=>sums[a][0]-sums[b][0]||sums[a][1]-sums[b][1]||sums[a][2]-sums[b][2]);let best=Infinity,keepId=-1,drop=-1;for(let j=0;j<sorted.length;j++)for(let k=j+1;k<Math.min(j+8,sorted.length);k++){let a=sorted[j],b=sorted[k],dist=0;for(let p=0;p<64;p++)for(let c=0;c<3;c++)dist+=Math.abs(vectors[a][p][c]-vectors[b][p][c]);if(dist<best){best=dist;keepId=a;drop=b}}active.splice(active.indexOf(drop),1);owner=owner.map(v=>v===drop?keepId:v)}}let slot=new Map(active.map((v,i)=>[v,i])),out=[];be16(out,active.length);pal.slice(1).forEach(v=>be16(out,v));for(const [n,flip] of refs)be16(out,0x2000|flip|(TILE_BASE+slot.get(owner[n])));for(const n of active){let tile=tiles[n];for(let i=0;i<64;i+=2)out.push(tile[i]*16+tile[i+1])}pad(out);return {bytes:new Uint8Array(out),preview:indexed.map(i=>rgb(pal[i])),original,count:active.length,colors:keep.length}}
+function wallpaper(px,w,h,s){
+  const q=quantize(px,w,h,15,s.dither,s.dither_strength),seen=new Set(),keep=[];
+  for(const i of q.indices){const c=q.codes[i];if(c!==0&&!seen.has(c)){seen.add(c);if(keep.length<14)keep.push(c)}}
+  const pal=new Array(16).fill(0),idx=new Map([[0,0]]);
+  keep.forEach((c,i)=>{pal[i+1]=c;idx.set(c,i+1)});
+  const cols=pal.map(rgb),indexed=Array.from(q.indices,i=>{const c=q.codes[i];return idx.has(c)?idx.get(c):nearest(rgb(c),cols)});
+  const tiles=[],refs=[],lookup=new Map();
+  for(let ty=0;ty<28;ty++)for(let tx=0;tx<40;tx++){
+    const tile=[];for(let y=0;y<8;y++)for(let x=0;x<8;x++)tile.push(indexed[(ty*8+y)*w+tx*8+x]);
+    let found=null;
+    for(const [flipped,flag] of [[tile,0],[flipH(tile),0x800],[flipV(tile),0x1000],[flipV(flipH(tile)),0x1800]]){
+      const key=flipped.join('');if(lookup.has(key)){found=[lookup.get(key),flag];break}
+    }
+    if(found)refs.push(found);
+    else{lookup.set(tile.join(''),tiles.length);refs.push([tiles.length,0]);tiles.push(tile)}
+  }
+  const original=tiles.length,owner=tiles.map((_,i)=>i),active=tiles.map((_,i)=>i);
+  if(active.length>MAX_TILES){
+    const vectors=tiles.map(t=>t.map(i=>cols[i]));
+    const sums=vectors.map(t=>[0,1,2].map(k=>t.reduce((a,c)=>a+c[k],0)));
+    // Weight tile boundaries more strongly to preserve continuity across 8x8 blocks.
+    const edgeWeight=p=>{const x=p&7,y=p>>3;return x===0||x===7||y===0||y===7?3:1};
+    const distance=(a,b)=>{let d=0;for(let p=0;p<64;p++){const va=vectors[a][p],vb=vectors[b][p],weight=edgeWeight(p);d+=weight*(Math.abs(va[0]-vb[0])+Math.abs(va[1]-vb[1])+Math.abs(va[2]-vb[2]))}return d};
+    while(active.length>MAX_TILES){
+      const sorted=active.slice().sort((a,b)=>sums[a][0]-sums[b][0]||sums[a][1]-sums[b][1]||sums[a][2]-sums[b][2]);
+      let best=Infinity,keepId=-1,drop=-1;
+      for(let j=0;j<sorted.length;j++)for(let k=j+1;k<Math.min(j+8,sorted.length);k++){
+        const a=sorted[j],b=sorted[k],dist=distance(a,b);
+        if(dist<best){best=dist;keepId=a;drop=b}
+      }
+      if(drop<0)throw Error('Não foi possível reduzir tiles');
+      active.splice(active.indexOf(drop),1);
+      for(let i=0;i<owner.length;i++)if(owner[i]===drop)owner[i]=keepId;
+    }
+  }
+  const slot=new Map(active.map((v,i)=>[v,i])),out=[];
+  be16(out,active.length);pal.slice(1).forEach(v=>be16(out,v));
+  for(const [n,flip] of refs)be16(out,0x2000|flip|(TILE_BASE+slot.get(owner[n])));
+  for(const n of active){const tile=tiles[n];for(let i=0;i<64;i+=2)out.push(tile[i]*16+tile[i+1])}
+  pad(out);
+  // Reconstruct the preview from the final retained tiles and map references.
+  // This is the exact image represented by WALL.ART, including tile merging and flips.
+  const preview=new Array(w*h);
+  for(let ty=0;ty<28;ty++)for(let tx=0;tx<40;tx++){
+    const [n,flip]=refs[ty*40+tx],tile=tiles[owner[n]];
+    for(let y=0;y<8;y++)for(let x=0;x<8;x++){
+      const sx=flip&0x800?7-x:x,sy=flip&0x1000?7-y:y;
+      preview[(ty*8+y)*w+tx*8+x]=cols[tile[sy*8+sx]];
+    }
+  }
+  return {bytes:new Uint8Array(out),preview,original,count:active.length,colors:keep.length}
+}
 function drawGuide(canvas,x,y){let c=canvas.getContext('2d');c.save();c.strokeStyle='#ffdc55';c.lineWidth=1;c.setLineDash([4,3]);c.strokeRect(x+.5,y+.5,BW-1,BH-1);c.restore()}
 function drawPixels(canvas,px){let ctx=canvas.getContext('2d'),im=ctx.createImageData(canvas.width,canvas.height);px.forEach((p,i)=>{im.data.set(p,i*4);im.data[i*4+3]=255});ctx.putImageData(im,0,0)}
 function schedule(){const id=++renderId;setTimeout(()=>{if(id!==renderId)return;render()},130)}
